@@ -1,3 +1,4 @@
+import pprint
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,7 +12,7 @@ def intersection_over_union(boxes_preds, boxes_labels, box_format="midpoint"):
     Parameters:
         boxes_preds (tensor): Predictions of Bounding Boxes (BATCH_SIZE, 4)
         boxes_labels (tensor): Correct labels of Bounding Boxes (BATCH_SIZE, 4)
-        box_format (str): midpoint/corners, if boxes (x,y,w,h) or (x1,y1,x2,y2)
+        box_format (str): midpoint/corners, if boxes (x,y,w,h) or (x1,y1,x2,y2) - normalize to cell
 
     Returns:
         tensor: Intersection over union for all examples
@@ -51,7 +52,7 @@ def intersection_over_union(boxes_preds, boxes_labels, box_format="midpoint"):
     return intersection / (box1_area + box2_area - intersection + 1e-6)
 
 
-def non_max_suppression(bboxes, iou_threshold, threshold, box_format="corners"):
+def non_max_suppression(bboxes, iou_threshold, threshold, box_format="midpoint"):
     """
     Does Non Max Suppression given bboxes
 
@@ -241,26 +242,30 @@ def get_bboxes(
     box_format="midpoint",
     device="cuda",
 ):
+    '''
+    Return:
+        Return a result and label for calculating mAP
+    '''
     all_pred_boxes = []
     all_true_boxes = []
 
     # make sure model is in eval before get bboxes
     model.eval()
-    train_idx = 0
+    img_id = 0
 
     for batch_idx, (x, labels) in enumerate(loader):
         x = x.to(device)
-        labels = labels.to(device)
+        labels = labels.to(device) # shape: (S, S, 30)
 
         with torch.no_grad():
-            predictions = model(x)
+            predictions = model(x) # shape: (S * S * 30)
 
         batch_size = x.shape[0]
-        true_bboxes = cellboxes_to_boxes(labels)
-        bboxes = cellboxes_to_boxes(predictions)
+        true_bboxes = cellboxes_to_boxes(labels) # shape: (batch_size, S * S, 6)
+        bboxes = cellboxes_to_boxes(predictions) # shape: (batch_size, S * S, 6)
 
         for idx in range(batch_size):
-            nms_boxes = non_max_suppression(
+            nms_boxes = non_max_suppression(    # shape: (no_of_bbox, 6)
                 bboxes[idx],
                 iou_threshold=iou_threshold,
                 threshold=threshold,
@@ -268,22 +273,18 @@ def get_bboxes(
             )
 
 
-            #if batch_idx == 0 and idx == 0:
-            #    plot_image(x[idx].permute(1,2,0).to("cpu"), nms_boxes)
-            #    print(nms_boxes)
-
             for nms_box in nms_boxes:
-                all_pred_boxes.append([train_idx] + nms_box)
+                all_pred_boxes.append([img_id] + nms_box)    # shape: (no_of_bbox, [img_id,....])
 
             for box in true_bboxes[idx]:
-                # many will get converted to 0 pred
+                # many will get converted to 0 pred (co nhung cell k co bbox)
                 if box[1] > threshold:
-                    all_true_boxes.append([train_idx] + box)
+                    all_true_boxes.append([img_id] + box)    # shape: (no_of_bbox, [img_id,....])
 
-            train_idx += 1
+            img_id += 1
 
     model.train()
-    return all_pred_boxes, all_true_boxes
+    return all_pred_boxes, all_true_boxes   # shape: (no_of_bbox, [img_id,....])
 
 
 
@@ -308,35 +309,38 @@ def convert_cellboxes(predictions, S=7):
     )
     best_box = scores.argmax(0).unsqueeze(-1)
     best_boxes = bboxes1 * (1 - best_box) + best_box * bboxes2
+
+    # shape = (batch_size, 7, 7, 1)
     cell_indices = torch.arange(7).repeat(batch_size, 7, 1).unsqueeze(-1)
-    x = 1 / S * (best_boxes[..., :1] + cell_indices)
+    x = 1 / S * (best_boxes[..., :1] + cell_indices) # 1/7 * 1.5
     y = 1 / S * (best_boxes[..., 1:2] + cell_indices.permute(0, 2, 1, 3))
-    w_y = 1 / S * best_boxes[..., 2:4]
-    converted_bboxes = torch.cat((x, y, w_y), dim=-1)
+    w_h = 1 / S * best_boxes[..., 2:4]
+    converted_bboxes = torch.cat((x, y, w_h), dim=-1)
     predicted_class = predictions[..., :20].argmax(-1).unsqueeze(-1)
-    best_confidence = torch.max(predictions[..., 20], predictions[..., 25]).unsqueeze(
-        -1
-    )
+    best_confidence = torch.max(predictions[..., 20], predictions[..., 25]).unsqueeze(-1)
     converted_preds = torch.cat(
         (predicted_class, best_confidence, converted_bboxes), dim=-1
     )
 
-    return converted_preds
+    return converted_preds # shape: (batch_size, 7, 7, 6)
 
 
 def cellboxes_to_boxes(out, S=7):
+    # shape: (batch size, S * S, [predicted_class, best_conf, x, y, w, h])
     converted_pred = convert_cellboxes(out).reshape(out.shape[0], S * S, -1)
-    converted_pred[..., 0] = converted_pred[..., 0].long()
+    converted_pred[..., 0] = converted_pred[..., 0].long()  # class?
     all_bboxes = []
 
     for ex_idx in range(out.shape[0]):
         bboxes = []
 
         for bbox_idx in range(S * S):
-            bboxes.append([x.item() for x in converted_pred[ex_idx, bbox_idx, :]])
-        all_bboxes.append(bboxes)
+            bboxes.append([x.item() for x in converted_pred[ex_idx, bbox_idx, :]])  
+        all_bboxes.append(bboxes)   # [[[box1], [box2], ...], image2, image3, ....]
 
-    return all_bboxes
+    return all_bboxes # shape: (batch_size, S * S, 6)
+
+
 
 def save_checkpoint(state, filename="my_checkpoint.pth.tar"):
     print("=> Saving checkpoint")
