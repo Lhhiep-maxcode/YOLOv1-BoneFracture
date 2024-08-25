@@ -32,7 +32,7 @@ class YoloLoss(nn.Module):
 
         # Calculate IoU for the two predicted bounding boxes with target bbox
         iou_b1 = intersection_over_union(predictions[..., (self.C + 1):(self.C + 5)], target[..., (self.C + 1):(self.C + 5)])
-        iou_b2 = intersection_over_union(predictions[..., (self.C + 6):(self.C + 10)], target[..., (self.C + 1):(self.C + 5)])
+        iou_b2 = intersection_over_union(predictions[..., (self.C + (self.B - 1) * 5 + 1):(self.C + (self.B - 1) * 5 + 5)], target[..., (self.C + 1):(self.C + 5)])
         ious = torch.cat([iou_b1.unsqueeze(0), iou_b2.unsqueeze(0)], dim=0)
         
         # Take the box with highest IoU out of the two prediction
@@ -48,7 +48,7 @@ class YoloLoss(nn.Module):
         # predictions, which is the one with highest Iou calculated previously.
         box_predictions = exists_box * (
             (
-                bestbox * predictions[..., (self.C + 6):(self.C + 10)]
+                bestbox * predictions[..., (self.C + (self.B - 1) * 5 + 1):(self.C + (self.B - 1) * 5 + 5)]
                 + (1 - bestbox) * predictions[..., (self.C + 1):(self.C + 5)]
             )
         )
@@ -73,7 +73,7 @@ class YoloLoss(nn.Module):
 
         # pred_box is the confidence score for the bbox with highest IoU
         pred_box = (
-            bestbox * predictions[..., (self.C + 5):(self.C + 6)] + (1 - bestbox) * predictions[..., (self.C):(self.C + 1)]
+            bestbox * predictions[..., (self.C + (self.B - 1) * 5):(self.C + (self.B - 1) * 5 + 1)] + (1 - bestbox) * predictions[..., (self.C):(self.C + 1)]
         )
 
         # (N, S, S, 1) -> (N * S * S, 1)
@@ -93,8 +93,8 @@ class YoloLoss(nn.Module):
         )
 
         # (N, S, S, 1) -> (N * S * S, 1)
-        no_object_loss += self.mse(
-            torch.flatten((1 - exists_box) * predictions[..., (self.C + 5):(self.C + 6)], end_dim=-2),
+        no_object_loss += (self.B - 1) * self.mse(
+            torch.flatten((1 - exists_box) * predictions[..., (self.C + (self.B - 1) * 5):(self.C + (self.B - 1) * 5 + 1)], end_dim=-2),
             torch.flatten((1 - exists_box) * target[..., (self.C):(self.C + 1)], end_dim=-2)
         )
 

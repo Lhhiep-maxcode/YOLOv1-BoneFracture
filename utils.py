@@ -288,7 +288,7 @@ def get_bboxes(
 
 
 
-def convert_cellboxes(predictions, S=7):
+def convert_cellboxes(predictions, S=7, C=20, B=2):
     """
     Converts bounding boxes output from Yolo with
     an image split size of S into entire image ratios
@@ -301,23 +301,23 @@ def convert_cellboxes(predictions, S=7):
 
     predictions = predictions.to("cpu")
     batch_size = predictions.shape[0]
-    predictions = predictions.reshape(batch_size, 7, 7, 30)
-    bboxes1 = predictions[..., 21:25]
-    bboxes2 = predictions[..., 26:30]
+    predictions = predictions.reshape(batch_size, S, S, B * 5 + C)
+    bboxes1 = predictions[..., (C + 1):(C + 5)]
+    bboxes2 = predictions[..., (C + (B - 1) * 5 + 1):(C + (B - 1) * 5 + 5)]
     scores = torch.cat(
-        (predictions[..., 20].unsqueeze(0), predictions[..., 25].unsqueeze(0)), dim=0
+        (predictions[..., C].unsqueeze(0), predictions[..., (C + (B - 1) * 5)].unsqueeze(0)), dim=0
     )
     best_box = scores.argmax(0).unsqueeze(-1)
     best_boxes = bboxes1 * (1 - best_box) + best_box * bboxes2
 
     # shape = (batch_size, 7, 7, 1)
-    cell_indices = torch.arange(7).repeat(batch_size, 7, 1).unsqueeze(-1)
+    cell_indices = torch.arange(S).repeat(batch_size, S, 1).unsqueeze(-1)
     x = 1 / S * (best_boxes[..., :1] + cell_indices) # 1/7 * 1.5
     y = 1 / S * (best_boxes[..., 1:2] + cell_indices.permute(0, 2, 1, 3))
     w_h = 1 / S * best_boxes[..., 2:4]
     converted_bboxes = torch.cat((x, y, w_h), dim=-1)
-    predicted_class = predictions[..., :20].argmax(-1).unsqueeze(-1)
-    best_confidence = torch.max(predictions[..., 20], predictions[..., 25]).unsqueeze(-1)
+    predicted_class = predictions[..., :C].argmax(-1).unsqueeze(-1)
+    best_confidence = torch.max(predictions[..., C], predictions[..., (C + (B - 1) * 5)]).unsqueeze(-1)
     converted_preds = torch.cat(
         (predicted_class, best_confidence, converted_bboxes), dim=-1
     )
