@@ -261,8 +261,8 @@ def get_bboxes(
             predictions = model(x) # shape: (S * S * 30)
 
         batch_size = x.shape[0]
-        true_bboxes = cellboxes_to_boxes(labels) # shape: (batch_size, S * S, 6)
-        bboxes = cellboxes_to_boxes(predictions) # shape: (batch_size, S * S, 6)
+        true_bboxes = cellboxes_to_boxes(out=labels, device=device) # shape: (batch_size, S * S, 6)
+        bboxes = cellboxes_to_boxes(out=predictions, device=device) # shape: (batch_size, S * S, 6)
 
         for idx in range(batch_size):
             nms_boxes = non_max_suppression(    # shape: (no_of_bbox, 6)
@@ -288,7 +288,7 @@ def get_bboxes(
 
 
 
-def convert_cellboxes(predictions, S=7, C=20, B=2):
+def convert_cellboxes(predictions, S=7, C=1, B=2, device='cuda'):
     """
     Converts bounding boxes output from Yolo with
     an image split size of S into entire image ratios
@@ -299,7 +299,7 @@ def convert_cellboxes(predictions, S=7, C=20, B=2):
     by one, resulting in a slower but more readable implementation.
     """
 
-    predictions = predictions.to("cpu")
+    predictions = predictions.to(device)
     batch_size = predictions.shape[0]
     predictions = predictions.reshape(batch_size, S, S, B * 5 + C)
     bboxes1 = predictions[..., (C + 1):(C + 5)]
@@ -311,7 +311,7 @@ def convert_cellboxes(predictions, S=7, C=20, B=2):
     best_boxes = bboxes1 * (1 - best_box) + best_box * bboxes2
 
     # shape = (batch_size, 7, 7, 1)
-    cell_indices = torch.arange(S).repeat(batch_size, S, 1).unsqueeze(-1)
+    cell_indices = torch.arange(S, device=device).repeat(batch_size, S, 1).unsqueeze(-1)
     x = 1 / S * (best_boxes[..., :1] + cell_indices) # 1/7 * 1.5
     y = 1 / S * (best_boxes[..., 1:2] + cell_indices.permute(0, 2, 1, 3))
     w_h = 1 / S * best_boxes[..., 2:4]
@@ -325,9 +325,9 @@ def convert_cellboxes(predictions, S=7, C=20, B=2):
     return converted_preds # shape: (batch_size, 7, 7, 6)
 
 
-def cellboxes_to_boxes(out, S=7):
+def cellboxes_to_boxes(out, S=7, device='cuda'):
     # shape: (batch size, S * S, [predicted_class, best_conf, x, y, w, h])
-    converted_pred = convert_cellboxes(out).reshape(out.shape[0], S * S, -1)
+    converted_pred = convert_cellboxes(predictions=out, device=device).reshape(out.shape[0], S * S, -1)
     converted_pred[..., 0] = converted_pred[..., 0].long()  # class?
     all_bboxes = []
 
