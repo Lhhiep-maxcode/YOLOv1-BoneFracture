@@ -113,4 +113,3 @@ class Yolov1(nn.Module):
             nn.Linear(4096, S * S * (C + B * 5)),
         )
     
-print("HI")
