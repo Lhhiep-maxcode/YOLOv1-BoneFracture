@@ -8,7 +8,7 @@ class YoloLoss(nn.Module):
     Calculate the loss for yolo (v1) model
     """
 
-    def __init__(self, S=7, B=2, C=20):
+    def __init__(self, S=10, B=2, C=1):
         super(YoloLoss, self).__init__()
         self.mse = nn.MSELoss(reduction="sum")
 
@@ -27,9 +27,7 @@ class YoloLoss(nn.Module):
         self.lambda_coord = 5
 
     def forward(self, predictions, target):
-        # predictions are shaped (BATCH_SIZE, S*S(C+B*5) when inputted
-        predictions = predictions.reshape(-1, self.S, self.S, self.C + self.B * 5)
-
+        # predictions are shaped (BATCH_SIZE, S, S, 11) when inputted
         # Calculate IoU for the two predicted bounding boxes with target bbox
         iou_b1 = intersection_over_union(predictions[..., (self.C + 1):(self.C + 5)], target[..., (self.C + 1):(self.C + 5)])
         iou_b2 = intersection_over_union(predictions[..., (self.C + (self.B - 1) * 5 + 1):(self.C + (self.B - 1) * 5 + 5)], target[..., (self.C + 1):(self.C + 5)])
