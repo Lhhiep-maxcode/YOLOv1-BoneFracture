@@ -94,7 +94,7 @@ def non_max_suppression(bboxes, iou_threshold, threshold, box_format="midpoint")
 
 
 def mean_average_precision(
-    pred_boxes, true_boxes, iou_threshold=0.5, box_format="midpoint", num_classes=20
+    pred_boxes, true_boxes, iou_threshold=0.5, box_format="midpoint", num_classes=1
 ):
     """
     Calculates mean average precision 
@@ -288,7 +288,7 @@ def get_bboxes(
 
 
 
-def convert_cellboxes(predictions, S=7, C=1, B=2, device='cuda'):
+def convert_cellboxes(predictions, S=10, C=1, B=2, device='cuda'):
     """
     Converts bounding boxes output from Yolo with
     an image split size of S into entire image ratios
@@ -325,7 +325,7 @@ def convert_cellboxes(predictions, S=7, C=1, B=2, device='cuda'):
     return converted_preds # shape: (batch_size, 7, 7, 6)
 
 
-def cellboxes_to_boxes(out, S=7, device='cuda'):
+def cellboxes_to_boxes(out, S=10, device='cuda'):
     # shape: (batch size, S * S, [predicted_class, best_conf, x, y, w, h])
     converted_pred = convert_cellboxes(predictions=out, device=device).reshape(out.shape[0], S * S, -1)
     converted_pred[..., 0] = converted_pred[..., 0].long()  # class?

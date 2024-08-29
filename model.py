@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 from torchvision.models import resnet50, ResNet50_Weights
-from torchsummary import summary
 
 
 class CNNBlock(nn.Module):
@@ -33,7 +32,6 @@ class Yolov1(nn.Module):
         self.C = num_classes
         modules = list(net.children())
         self.backbone = nn.Sequential(*modules[:-2])
-        print(1)
         self.head = nn.Sequential(
             CNNBlock(in_channels=2048, out_channels=1024, kernel_size=1, padding=0, stride=1),  # (20, 20, 1024)
             CNNBlock(in_channels=1024, out_channels=512, kernel_size=1, padding=0, stride=1),  # (20, 20, 512)
@@ -44,7 +42,7 @@ class Yolov1(nn.Module):
 
     def forward(self, x):
         x = self.head(self.backbone(x))
-        return x
+        return x.permute(0, 2, 3, 1).contiguous()
     
     
     
