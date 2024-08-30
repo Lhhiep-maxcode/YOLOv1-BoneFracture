@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from collections import Counter
+import tqdm
 
 def intersection_over_union(boxes_preds, boxes_labels, box_format="midpoint"):
     """
@@ -94,7 +95,7 @@ def non_max_suppression(bboxes, iou_threshold, threshold, box_format="midpoint")
 
 
 def mean_average_precision(
-    pred_boxes, true_boxes, iou_threshold=0.5, box_format="midpoint", num_classes=1
+    pred_boxes, true_boxes, iou_threshold=0.5, threshold=0.5, box_format="midpoint", num_classes=1
 ):
     """
     Calculates mean average precision 
@@ -104,12 +105,16 @@ def mean_average_precision(
         specified as [train_idx, class_prediction, prob_score, x1, y1, x2, y2]
         true_boxes (list): Similar as pred_boxes except all the correct ones 
         iou_threshold (float): threshold where predicted bboxes is correct
+        threshold (float): threshold where bboxes is chosen (using to compute precision, recall value)
         box_format (str): "midpoint" or "corners" used to specify bboxes
         num_classes (int): number of classes
 
     Returns:
         float: mAP value across all classes given a specific IoU threshold 
     """
+
+    print(f"{'Class':^20}{'Precision':^20}{'Recall':^20}{'AP':^20}")
+    print('-'*80)
 
     # list storing all AP for respective classes
     average_precisions = []
@@ -154,14 +159,22 @@ def mean_average_precision(
         # If none exists for this class then we can safely skip
         if total_true_bboxes == 0:
             continue
-
+        
+        ground_truth_img_dict = {}
         for detection_idx, detection in enumerate(detections):
             # Only take out the ground_truths that have the same
             # training idx as detection
-            ground_truth_img = [
-                bbox for bbox in ground_truths if bbox[0] == detection[0]
-            ]
+            ground_truth_img = []
 
+            if detection[0] in ground_truth_img_dict:
+                ground_truth_img = ground_truth_img_dict[detection[0]]
+            else:
+                ground_truth_img = [
+                    bbox for bbox in ground_truths if bbox[0] == detection[0]
+                ]
+                ground_truth_img_dict[detection[0]] = ground_truth_img
+
+########################################################################################################
             num_gts = len(ground_truth_img)
             best_iou = 0
 
@@ -196,7 +209,24 @@ def mean_average_precision(
         precisions = torch.cat((torch.tensor([1]), precisions))
         recalls = torch.cat((torch.tensor([0]), recalls))
         # torch.trapz for numerical integration
-        average_precisions.append(torch.trapz(precisions, recalls))
+        ap = torch.trapz(precisions, recalls)
+        average_precisions.append(ap)
+
+        # Single precision/recall value for conf threshold
+        idx = 0
+        precision = 0.0
+        recall = 0.0
+        for i, detection in enumerate(detections):
+            if detection[2] < threshold:
+                idx = i - 1
+                break
+            idx = i
+
+        if idx >= 0:
+            precision = precisions[idx]
+            recall = recalls[idx]
+
+        print(f"{c:^20}{precision:^20}{recall:^20}{ap:^20}")
 
     return sum(average_precisions) / len(average_precisions)
 
@@ -252,8 +282,9 @@ def get_bboxes(
     # make sure model is in eval before get bboxes
     model.eval()
     img_id = 0
+    loop = tqdm(loader)
 
-    for batch_idx, (x, labels) in enumerate(loader):
+    for batch_idx, (x, labels) in enumerate(loop):
         x = x.to(device)
         labels = labels.to(device) # shape: (S, S, 30)
 
